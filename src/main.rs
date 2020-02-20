@@ -2,6 +2,7 @@ use bit_vec::BitVec;
 use failure::Error;
 use serde::{Deserialize, Serialize};
 use structopt::StructOpt;
+use rayon::prelude::*;
 
 use std::default::Default;
 use std::fs::{self, File};
@@ -163,13 +164,17 @@ impl TaskState {
 		}
 
 		// Search for the best library
-		let take = self
+		let take_vec = self
 			.cur_libraries
 			// TODO par
 			.iter()
 			.enumerate()
 			.filter_map(|(i, l)| if l { Some(i as u32) } else { None })
-			.map(|lib| self.step_compute_library_score(lib))
+			.collect::<Vec<u32>>();
+
+		let take = take_vec
+			.par_iter()
+			.map(|lib| self.step_compute_library_score(*lib))
 			.max_by_key(|take| take.1);
 
 		if let Some((take, _score)) = take {
