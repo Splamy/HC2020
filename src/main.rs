@@ -173,8 +173,12 @@ impl TaskState {
 			.max_by_key(|take| take.1);
 
 		if let Some((take, _score)) = take {
-			self.cur_time += self.libraries[take.library as usize].signup_time;
 			self.cur_libraries.set(take.library as usize, false);
+			if take.books.is_empty() {
+				return false;
+			}
+
+			self.cur_time += self.libraries[take.library as usize].signup_time;
 
 			for book in &take.books {
 				self.cur_books.set(*book as usize, false);
