@@ -174,7 +174,7 @@ impl TaskState {
 		let take = take_vec
 			.par_iter()
 			.map(|lib| self.step_compute_library_score(*lib))
-			.max_by_key(|take| take.1);
+			.max_by(|t1, t2| t1.1.partial_cmp(&t2.1).unwrap());
 
 		if let Some((take, _score)) = take {
 			self.cur_libraries.set(take.library as usize, false);
@@ -198,7 +198,7 @@ impl TaskState {
 
 	fn remaining_time(&self) -> u32 { self.duration - self.cur_time }
 
-	fn step_compute_library_score(&self, library: u32) -> (Take, u32) {
+	fn step_compute_library_score(&self, library: u32) -> (Take, f32) {
 		let lib = &self.libraries[library as usize];
 		if let Some(left_time) =
 			self.remaining_time().checked_sub(lib.signup_time)
@@ -225,10 +225,10 @@ impl TaskState {
 			books.truncate(book_count as usize);
 
 			let take = Take { library, books };
-			let score = take.score(self, self.cur_time);
+			let score = take.score(self, self.cur_time) as f32 / lib.signup_time as f32;
 			(take, score)
 		} else {
-			(Take { library, books: Vec::new() }, 0)
+			(Take { library, books: Vec::new() }, 0f32)
 		}
 	}
 }
