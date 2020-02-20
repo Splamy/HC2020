@@ -26,11 +26,9 @@ struct Task {
 	state: TaskState,
 }
 
-#[derive(Serialize, Deserialize, Default)]
+#[derive(Serialize, Deserialize, Default, Debug)]
 struct TaskState {
 	// CODE HERE
-
-	count: u32,
 }
 
 fn main() {
@@ -46,9 +44,6 @@ fn main() {
 
 fn parse_in(data: &str, state: &mut TaskState) {
 	// CODE HERE
-	state.count = 42;
-
-
 }
 
 fn run(task: &mut Task) {
@@ -65,8 +60,10 @@ fn gen_out(state: &mut TaskState) {
 
 // File picker
 
+const FILE_PATH: &'static str = "./data/";
+
 fn find_files() -> Vec<String> {
-	let paths = fs::read_dir("./").unwrap();
+	let paths = fs::read_dir(FILE_PATH).expect("No file found starting with your substring");
 	let mut files = vec![];
 	for path in paths {
 		let p = path.unwrap().path();
@@ -105,6 +102,7 @@ fn open_task(name: &str, opts: &Opts) -> Task {
 	} else {
 		// Restore state
 		task.load_state();
+		println!("Restored state: {:?}", task.state);
 	}
 
 	task
@@ -127,7 +125,9 @@ fn write_from_string(file: &str, data: &str) {
 }
 
 fn combine_name(base: &str, ext: &str) -> String {
-	let mut f = base.to_string();
+	let mut f = String::new();
+	f.push_str(FILE_PATH);
+	f.push_str(base);
 	f.push('.');
 	f.push_str(ext);
 	f
