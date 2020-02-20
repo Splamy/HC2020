@@ -1,8 +1,7 @@
 /target
-/data
 
 # Framwork files
-*.in
+#*.in
 *.out
 *.state
 *.state.json
