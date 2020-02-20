@@ -215,7 +215,6 @@ impl TaskState {
 					.reverse()
 			});
 			books.truncate(book_count as usize);
-			dbg!(&books);
 
 			let take = Take { library, books };
 			let score = take.score(self, self.cur_time);
@@ -291,7 +290,7 @@ fn open_task(name: &str, opts: &Opts) -> Task {
 	} else {
 		// Restore state
 		task.load_state();
-		println!("Restored state: {:?}", task.state);
+		//println!("Restored state: {:?}", task.state);
 	}
 
 	task
