@@ -1,14 +1,16 @@
+use std::cmp::{Ord, Ordering, PartialOrd};
+use std::collections::BinaryHeap;
+use std::default::Default;
+use std::fs::{self, File};
+use std::io::Write;
+use std::path::Path;
+use std::sync::atomic::{self, AtomicBool};
+
 use bit_vec::BitVec;
 use failure::Error;
 use serde::{Deserialize, Serialize};
 use structopt::StructOpt;
 use rayon::prelude::*;
-
-use std::default::Default;
-use std::fs::{self, File};
-use std::io::Write;
-use std::path::Path;
-use std::sync::atomic::{AtomicBool, Ordering};
 
 type Result<T> = std::result::Result<T, Error>;
 
@@ -63,13 +65,18 @@ struct TaskState {
 	takes: Vec<Take>,
 }
 
+struct BookScore<'a> {
+	state: &'a TaskState,
+	book: u32,
+}
+
 static RUNNING: AtomicBool = AtomicBool::new(true);
 
 fn main() {
 	let opts: Opts = Opts::from_args();
 
 	ctrlc::set_handler(move || {
-		RUNNING.store(false, Ordering::SeqCst);
+		RUNNING.store(false, atomic::Ordering::SeqCst);
 	})
 	.expect("Error setting Ctrl-C handler");
 
@@ -78,6 +85,27 @@ fn main() {
 	let mut task = open_task(&file, &opts);
 	run(&mut task);
 	task.save_output();
+}
+
+impl PartialEq for BookScore<'_> {
+	fn eq(&self, other: &Self) -> bool {
+		self.book == other.book
+	}
+}
+impl Eq for BookScore<'_> {}
+
+impl Ord for BookScore<'_> {
+	fn cmp(&self, other: &Self) -> Ordering {
+		self.state.book_scores[self.book as usize]
+			.cmp(&self.state.book_scores[other.book as usize])
+			.reverse()
+	}
+}
+
+impl PartialOrd for BookScore<'_> {
+	fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+		Some(self.cmp(other))
+	}
 }
 
 impl TaskState {
@@ -209,25 +237,41 @@ impl TaskState {
 			self.remaining_time().checked_sub(lib.signup_time)
 		{
 			let book_count = left_time * lib.books_per_day;
+			if book_count == 0 {
+				return (Take { library, books: Vec::new() }, 0f32);
+			}
 
-			let mut books = lib
-				.books
+			let mut heap = BinaryHeap::with_capacity(book_count as usize);
+
+			lib.books
 				.iter()
 				.enumerate()
 				.filter_map(|(i, x)| {
 					if x && self.cur_books.get(i).unwrap_or_default() {
-						Some(i as u32)
+						Some(BookScore { state: self, book: i as u32 })
 					} else {
 						None
 					}
 				})
-				.collect::<Vec<_>>();
-			books.sort_by(|a, b| {
+				.for_each(|book| {
+					if heap.len() >= book_count as usize {
+						if *heap.peek().unwrap() > book {
+							heap.pop();
+							heap.push(book);
+						}
+					} else {
+						heap.push(book);
+					}
+				});
+				//.collect::<Vec<_>>();
+			/*books.sort_by(|a, b| {
 				self.book_scores[*a as usize]
 					.cmp(&self.book_scores[*b as usize])
 					.reverse()
 			});
-			books.truncate(book_count as usize);
+			books.truncate(book_count as usize);*/
+
+			let books = heap.iter().map(|b| b.book).collect();
 
 			let take = Take { library, books };
 			let score = take.score(self, self.cur_time) as f32 / lib.signup_time as f32;
@@ -252,7 +296,7 @@ impl Take {
 }
 
 fn run(task: &mut Task) {
-	while RUNNING.load(Ordering::SeqCst) && !task.state.do_step() {}
+	while RUNNING.load(atomic::Ordering::SeqCst) && !task.state.do_step() {}
 	task.save_state();
 }
 
