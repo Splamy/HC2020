@@ -133,6 +133,23 @@ impl TaskState {
 		}
 		score
 	}
+
+	/// Advances the state by one step.
+	///
+	/// Returns `true` if done or `false` if more steps should be done.
+	fn do_step(&mut self) -> bool {
+		let cur_time: u32 = self.takes.iter()
+			.map(|t| self.libraries[t.library as usize].signup_time)
+			.sum();
+		println!("Time {}/{}", cur_time, self.duration);
+		if cur_time >= self.duration {
+			return true;
+		}
+
+		// Search for the best library
+
+		false
+	}
 }
 
 impl Take {
@@ -149,11 +166,9 @@ impl Take {
 }
 
 fn run(task: &mut Task) {
-	//task.save_state();
-	// CODE HERE
-	while RUNNING.load(Ordering::SeqCst) {
-		thread::sleep(Duration::from_secs(1));
+	while RUNNING.load(Ordering::SeqCst) && !task.state.do_step() {
 	}
+	task.save_state();
 }
 
 // FRAME ======================================================================
