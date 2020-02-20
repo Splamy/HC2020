@@ -32,9 +32,6 @@ struct Task {
 }
 
 #[derive(Serialize, Deserialize, Default, Debug)]
-struct Book(u16);
-
-#[derive(Serialize, Deserialize, Default, Debug)]
 struct Library {
 	signup_time: u32,
 	books_per_day: u32,
@@ -44,14 +41,15 @@ struct Library {
 #[derive(Serialize, Deserialize, Default, Debug)]
 struct Take {
 	library: u32,
-	books: Vec<Book>,
+	books: Vec<u32>,
 }
 
 #[derive(Serialize, Deserialize, Default, Debug)]
 struct TaskState {
 	// Input
 	libraries: Vec<Library>,
-	book_scores: Vec<Book>,
+	book_scores: Vec<u16>,
+	duration: u32,
 
 	// Output
 	takes: Vec<Take>,
@@ -78,6 +76,19 @@ impl TaskState {
 	}
 
 	fn gen_out(&self) {
+	}
+}
+
+impl Take {
+	fn score(&self, state: &TaskState, start: u32) -> u32 {
+		let lib = &state.libraries[self.library as usize];
+		let start = start + lib.signup_time;
+		self.books
+			.iter()
+			.take(state.duration as usize)
+			.cloned()
+			.map(|b| state.book_scores[b as usize] as u32)
+			.sum()
 	}
 }
 
