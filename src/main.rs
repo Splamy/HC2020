@@ -1,11 +1,12 @@
+use bit_vec::BitVec;
 use serde::{Deserialize, Serialize};
-use std::default::Default;
 use structopt::StructOpt;
+
+use std::default::Default;
 use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
@@ -31,18 +32,39 @@ struct Task {
 }
 
 #[derive(Serialize, Deserialize, Default, Debug)]
-struct TaskState {
-	// CODE HERE
+struct Book(u16);
+
+#[derive(Serialize, Deserialize, Default, Debug)]
+struct Library {
+	signup_time: u32,
+	books_per_day: u32,
+	books: BitVec,
 }
 
-static running: std::sync::atomic::AtomicBool = AtomicBool::new(true);
+#[derive(Serialize, Deserialize, Default, Debug)]
+struct Take {
+	library: u32,
+	books: Vec<Book>,
+}
+
+#[derive(Serialize, Deserialize, Default, Debug)]
+struct TaskState {
+	// Input
+	libraries: Vec<Library>,
+	book_scores: Vec<Book>,
+
+	// Output
+	takes: Vec<Take>,
+}
+
+static RUNNING: AtomicBool = AtomicBool::new(true);
 
 fn main() {
 	let opts: Opts = Opts::from_args();
 
-    ctrlc::set_handler(move || {
-        running.store(false, Ordering::SeqCst);
-    }).expect("Error setting Ctrl-C handler");
+	ctrlc::set_handler(move || {
+		RUNNING.store(false, Ordering::SeqCst);
+	}).expect("Error setting Ctrl-C handler");
 
 	let files = find_files();
 	let file = pick_file(&files[..], &opts.pick);
@@ -59,7 +81,7 @@ fn parse_in(data: &str, state: &mut TaskState) {
 fn run(task: &mut Task) {
 	//task.save_state();
 	// CODE HERE
-	while running.load(Ordering::SeqCst) {
+	while RUNNING.load(Ordering::SeqCst) {
 		thread::sleep(Duration::from_secs(1));
 	}
 }
