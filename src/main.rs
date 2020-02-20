@@ -1,9 +1,9 @@
 use serde::{Deserialize, Serialize};
 use std::default::Default;
+use structopt::StructOpt;
 use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::path::Path;
-use structopt::StructOpt;
 
 #[derive(StructOpt)]
 #[structopt(about, author)]
@@ -11,44 +11,57 @@ struct Opts {
 	#[structopt()]
 	/// takes the first matching file
 	pick: String,
+
+	#[structopt(short, long)]
+	/// Ignores the state file and parses the in file again
+	reparse: bool,
 }
 
 struct Task {
 	task_name: String,
+	file_in: String,
+	file_out: String,
+	file_state: String,
+
 	state: TaskState,
 }
 
 #[derive(Serialize, Deserialize, Default)]
 struct TaskState {
-	// TODO
+	// CODE HERE
+
+	count: u32,
 }
 
 fn main() {
 	let opts: Opts = Opts::from_args();
 
 	let files = find_files();
-	let file = pick_file(&files[..], opts.pick);
-
-	// todo check skip parse
-	let task = open_task(&file);
-	// - import data
-	// - run
-	// - save => state
-	// - save => output
+	let file = pick_file(&files[..], &opts.pick);
+	let mut task = open_task(&file, &opts);
+	run(&mut task);
+	gen_out(&mut task.state);
 }
 
 
 fn parse_in(data: &str, state: &mut TaskState) {
 	// CODE HERE
+	state.count = 42;
+
+
 }
 
 fn run(task: &mut Task) {
+	task.save_state();
+	// CODE HERE
+
+}
+
+fn gen_out(state: &mut TaskState) {
 	// CODE HERE
 }
 
-fn gen_out(task: &mut Task) {
-	// CODE HERE
-}
+// FRAME ======================================================================
 
 // File picker
 
@@ -69,9 +82,9 @@ fn find_files() -> Vec<String> {
 	files
 }
 
-fn pick_file<'a, T: AsRef<str>>(files: &'a [T], starts_with: String) -> &'a T {
+fn pick_file<'a, T: AsRef<str>>(files: &'a [T], starts_with: &str) -> &'a T {
 	for f in files {
-		if f.as_ref().starts_with(&starts_with) {
+		if f.as_ref().starts_with(starts_with) {
 			return f;
 		}
 	}
@@ -80,24 +93,18 @@ fn pick_file<'a, T: AsRef<str>>(files: &'a [T], starts_with: String) -> &'a T {
 
 // Reader
 
-fn open_task(name: &str) -> Task {
-	let mut task = Task {
-		task_name: name.to_string(),
-		state: TaskState::default(),
-	};
+fn open_task(name: &str, opts: &Opts) -> Task {
+	let mut task = Task::new(name);
 
-	let in_file = task.get_filename_in();
-	let state_file = task.get_filename_state();
-	
-	let state_exists = Path::new(&state_file).exists();
+	let state_exists = Path::new(&task.file_state).exists();
 
-	if state_exists {
+	if !state_exists || opts.reparse {
 		// Read from raw file
-		task.load_state();
+		let data = read_as_string(&task.file_in);
+		parse_in(&data, &mut task.state);
 	} else {
-		// Read from raw file
-		let data = read_as_string(&in_file);
-		parse_in(&data, &mut (task.state));
+		// Restore state
+		task.load_state();
 	}
 
 	task
@@ -106,6 +113,7 @@ fn open_task(name: &str) -> Task {
 // I/O
 
 fn read_as_string(file: &str) -> String {
+	println!("Reading {}", file);
 	let mut f = File::open(&file).unwrap();
 	let mut buffer = String::new();
 	f.read_to_string(&mut buffer).unwrap();
@@ -113,37 +121,47 @@ fn read_as_string(file: &str) -> String {
 }
 
 fn write_from_string(file: &str, data: &str) {
-	let mut f = File::open(&file).unwrap();
+	println!("Writing {}", file);
+	let mut f = File::create(&file).unwrap();
 	f.write_all(data.as_bytes()).unwrap();
 }
 
-impl Task {
-	fn get_filename_in(&self) -> String {
-		self.combine_name("in")
-	}
-	fn get_filename_state(&self) -> String {
-		self.combine_name("state")
-	}
-	fn get_filename_out(&self) -> String {
-		self.combine_name("out")
-	}
+fn combine_name(base: &str, ext: &str) -> String {
+	let mut f = base.to_string();
+	f.push('.');
+	f.push_str(ext);
+	f
+}
 
-	fn combine_name(&self, ext: &str) -> String {
-		let mut f = self.task_name.to_string();
-		f.push('.');
-		f.push_str(ext);
-		f
+impl Task {
+	fn new(base: &str) -> Task {
+		Task {
+			task_name: base.to_string(),
+			file_in: combine_name(base, "in"),
+			file_out: combine_name(base, "out"),
+			file_state: combine_name(base, "state"),
+
+			state: TaskState::default(),
+		}
 	}
 
 	fn load_state(&mut self) {
-		let state_file = self.get_filename_state();
-		let data = read_as_string(&state_file);
-		self.state = serde_json::from_str(&data).unwrap();
+		self.state = TaskState::load_state(&self.file_state);
 	}
 
 	fn save_state(&self) {
-		let state_file = self.get_filename_state();
-		let data = serde_json::to_string(&self.state).unwrap();
-		write_from_string(&state_file, &data);
+		self.state.save_state(&self.file_state);
+	}
+}
+
+impl TaskState {
+	fn load_state(file: &str) -> TaskState {
+		let data = read_as_string(file);
+		serde_json::from_str(&data).unwrap()
+	}
+
+	fn save_state(&self, file: &str) {
+		let data = serde_json::to_string(&self).unwrap();
+		write_from_string(file, &data);
 	}
 }
