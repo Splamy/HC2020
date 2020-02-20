@@ -24,6 +24,10 @@ struct Opts {
 	#[structopt(short, long)]
 	/// Ignores the state file and parses the in file again
 	reparse: bool,
+
+	#[structopt(short, long)]
+	/// Takes the best recursive matching library
+	x_algo: bool,
 }
 
 struct Task {
@@ -41,7 +45,7 @@ struct Library {
 	books: BitVec,
 }
 
-#[derive(Serialize, Deserialize, Default, Debug)]
+#[derive(Serialize, Deserialize, Default, Debug, Clone)]
 struct Take {
 	library: u32,
 	books: Vec<u32>,
@@ -83,7 +87,7 @@ fn main() {
 	let files = find_files();
 	let file = pick_file(&files[..], &opts.pick);
 	let mut task = open_task(&file, &opts);
-	run(&mut task);
+	run(&mut task, &opts);
 	task.save_output();
 }
 
@@ -109,6 +113,13 @@ impl PartialOrd for BookScore<'_> {
 }
 
 impl TaskState {
+	fn take_rem_time(&self, take: &Take) -> u32 {
+		let lib = self.libraries[take.library as usize];
+		self.remaining_time
+			.saturating_sub(lib.signup_time)
+			.saturating_sub(take.books.len() / lib.books_per_day)
+	}
+
 	fn parse_in(&mut self, data: &str) {
 		let mut lines = data.lines();
 		let l = lines.next().unwrap(); // (amount books, amount libs, days scanning)
@@ -185,7 +196,7 @@ impl TaskState {
 	/// Advances the state by one step.
 	///
 	/// Returns `true` if done or `false` if more steps should be done.
-	fn do_step(&mut self) -> bool {
+	fn do_step(&mut self, opts: &Opts) -> bool {
 		println!("Time {}/{}", self.cur_time, self.duration);
 		if self.cur_time >= self.duration {
 			return true;
@@ -204,10 +215,30 @@ impl TaskState {
 			.map(|lib| self.step_compute_library_score(*lib))
 			.max_by(|t1, t2| t1.1.partial_cmp(&t2.1).unwrap());*/
 
-		let take = (0..self.cur_libraries.len() as u32).into_par_iter()
+		let take = if opts.x_algo {
+			let mut take_l = (0..self.cur_libraries.len() as u32).into_par_iter()
 			.filter(|i| self.cur_libraries.get(*i as usize).unwrap_or_default())
 			.map(|lib| self.step_compute_library_score(lib))
-			.max_by(|t1, t2| t1.1.partial_cmp(&t2.1).unwrap());
+			.collect::<Vec::<_>>();
+
+			take_l.sort_by(|t1, t2| t1.1.partial_cmp(&t2.1).unwrap());
+			if take_l.len() >= 2 {
+				let t1 = take_l[take_l.len() - 1];
+				let t2 = take_l[take_l.len() - 2];
+
+				
+
+			} else  {
+				take_l.last().cloned()
+			}
+
+			//.max_by(|t1, t2| t1.1.partial_cmp(&t2.1).unwrap())
+		} else {
+			(0..self.cur_libraries.len() as u32).into_par_iter()
+			.filter(|i| self.cur_libraries.get(*i as usize).unwrap_or_default())
+			.map(|lib| self.step_compute_library_score(lib))
+			.max_by(|t1, t2| t1.1.partial_cmp(&t2.1).unwrap())
+		};
 
 		if let Some((take, _score)) = take {
 			self.cur_libraries.set(take.library as usize, false);
@@ -295,8 +326,8 @@ impl Take {
 	}
 }
 
-fn run(task: &mut Task) {
-	while RUNNING.load(atomic::Ordering::SeqCst) && !task.state.do_step() {}
+fn run(task: &mut Task, opts: &Opts) {
+	while RUNNING.load(atomic::Ordering::SeqCst) && !task.state.do_step(opts) {}
 	task.save_state();
 }
 
