@@ -5,11 +5,9 @@ use structopt::StructOpt;
 
 use std::default::Default;
 use std::fs::{self, File};
-use std::io::{Read, Write};
+use std::io::Write;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::thread;
-use std::time::Duration;
 
 type Result<T> = std::result::Result<T, Error>;
 
@@ -26,7 +24,6 @@ struct Opts {
 }
 
 struct Task {
-	task_name: String,
 	file_in: String,
 	file_out: String,
 	file_state: String,
@@ -54,6 +51,13 @@ struct TaskState {
 	book_scores: Vec<u16>,
 	duration: u32,
 
+	// State
+	cur_time: u32,
+	/// The library ids which are left.
+	cur_libraries: BitVec,
+	/// The books which are left.
+	cur_books: BitVec,
+
 	// Output
 	takes: Vec<Take>,
 }
@@ -65,7 +69,8 @@ fn main() {
 
 	ctrlc::set_handler(move || {
 		RUNNING.store(false, Ordering::SeqCst);
-	}).expect("Error setting Ctrl-C handler");
+	})
+	.expect("Error setting Ctrl-C handler");
 
 	let files = find_files();
 	let file = pick_file(&files[..], &opts.pick);
@@ -84,9 +89,10 @@ impl TaskState {
 		self.duration = s.next().unwrap();
 
 		let l = lines.next().unwrap();
-		self.book_scores.extend(l.split(' ').map(|n| n.parse::<u16>().unwrap()));
+		self.book_scores
+			.extend(l.split(' ').map(|n| n.parse::<u16>().unwrap()));
 		assert_eq!(self.book_scores.len(), amount_books);
-		for i in 0..amount_libs {
+		for _ in 0..amount_libs {
 			let l = lines.next().unwrap(); // (amt books, signup time, books/day)
 			let mut s = l.split(' ').map(|n| n.parse::<u32>().unwrap());
 			let amount_books_lib = s.next().unwrap() as usize;
@@ -96,7 +102,7 @@ impl TaskState {
 			let mut lib = Library {
 				signup_time,
 				books_per_day,
-				books: BitVec::from_elem(amount_books, false)
+				books: BitVec::from_elem(amount_books, false),
 			};
 
 			// Read books
@@ -104,18 +110,31 @@ impl TaskState {
 			for b in l.split(' ').map(|n| n.parse::<usize>().unwrap()) {
 				lib.books.set(b, true);
 			}
-			assert_eq!(lib.books.iter().filter(|x| *x).count(), amount_books_lib);
+			assert_eq!(
+				lib.books.iter().filter(|x| *x).count(),
+				amount_books_lib
+			);
 
 			self.libraries.push(lib);
 		}
+
+		self.cur_time = 0;
+		self.cur_libraries = BitVec::from_elem(amount_libs, true);
+		self.cur_books = BitVec::from_elem(amount_books, true);
 	}
 
-	fn gen_out(&self, w: &mut Write) -> Result<()> {
+	fn gen_out(&self, w: &mut dyn Write) -> Result<()> {
 		println!("Saving output");
 		writeln!(w, "{}", self.takes.len())?;
 		for t in &self.takes {
 			writeln!(w, "{} {}", t.library, t.books.len())?;
+			let mut first = true;
 			for b in &t.books {
+				if first {
+					first = false
+				} else {
+					write!(w, " ")?;
+				}
 				write!(w, "{}", b)?;
 			}
 			writeln!(w)?;
@@ -138,27 +157,82 @@ impl TaskState {
 	///
 	/// Returns `true` if done or `false` if more steps should be done.
 	fn do_step(&mut self) -> bool {
-		let cur_time: u32 = self.takes.iter()
-			.map(|t| self.libraries[t.library as usize].signup_time)
-			.sum();
-		println!("Time {}/{}", cur_time, self.duration);
-		if cur_time >= self.duration {
+		println!("Time {}/{}", self.cur_time, self.duration);
+		if self.cur_time >= self.duration {
 			return true;
 		}
 
 		// Search for the best library
+		let take = self
+			.cur_libraries
+			// TODO par
+			.iter()
+			.enumerate()
+			.filter_map(|(i, l)| if l { Some(i as u32) } else { None })
+			.map(|lib| self.step_compute_library_score(lib))
+			.max_by_key(|take| take.1);
 
-		false
+		if let Some((take, _score)) = take {
+			self.cur_time += self.libraries[take.library as usize].signup_time;
+			self.cur_libraries.set(take.library as usize, false);
+
+			for book in &take.books {
+				self.cur_books.set(*book as usize, false);
+			}
+
+			self.takes.push(take);
+			false
+		} else {
+			true
+		}
+	}
+
+	fn remaining_time(&self) -> u32 { self.duration - self.cur_time }
+
+	fn step_compute_library_score(&self, library: u32) -> (Take, u32) {
+		let lib = &self.libraries[library as usize];
+		if let Some(left_time) =
+			self.remaining_time().checked_sub(lib.signup_time)
+		{
+			// TODO Mask out already taken books
+			let book_count = left_time * lib.books_per_day;
+
+			let mut books = lib
+				.books
+				.iter()
+				.enumerate()
+				.filter_map(|(i, x)| {
+					if x && self.cur_books.get(i).unwrap_or_default() {
+						Some(i as u32)
+					} else {
+						None
+					}
+				})
+				.collect::<Vec<_>>();
+			books.sort_by(|a, b| {
+				self.book_scores[*a as usize]
+					.cmp(&self.book_scores[*b as usize])
+					.reverse()
+			});
+			books.truncate(book_count as usize);
+			dbg!(&books);
+
+			let take = Take { library, books };
+			let score = take.score(self, self.cur_time);
+			(take, score)
+		} else {
+			(Take { library, books: Vec::new() }, 0)
+		}
 	}
 }
 
 impl Take {
 	fn score(&self, state: &TaskState, start: u32) -> u32 {
 		let lib = &state.libraries[self.library as usize];
-		let start = start + lib.signup_time;
+		let len = state.duration.saturating_sub(start + lib.signup_time);
 		self.books
 			.iter()
-			.take(state.duration as usize)
+			.take((len * lib.books_per_day) as usize)
 			.cloned()
 			.map(|b| state.book_scores[b as usize] as u32)
 			.sum()
@@ -166,8 +240,7 @@ impl Take {
 }
 
 fn run(task: &mut Task) {
-	while RUNNING.load(Ordering::SeqCst) && !task.state.do_step() {
-	}
+	while RUNNING.load(Ordering::SeqCst) && !task.state.do_step() {}
 	task.save_state();
 }
 
@@ -178,7 +251,8 @@ fn run(task: &mut Task) {
 const FILE_PATH: &'static str = "./data/";
 
 fn find_files() -> Vec<String> {
-	let paths = fs::read_dir(FILE_PATH).expect("No file found starting with your substring");
+	let paths = fs::read_dir(FILE_PATH)
+		.expect("No file found starting with your substring");
 	let mut files = vec![];
 	for path in paths {
 		let p = path.unwrap().path();
@@ -237,7 +311,6 @@ fn combine_name(base: &str, ext: &str) -> String {
 impl Task {
 	fn new(base: &str) -> Task {
 		Task {
-			task_name: base.to_string(),
 			file_in: combine_name(base, "in"),
 			file_out: combine_name(base, "out"),
 			file_state: combine_name(base, "state"),
@@ -250,9 +323,7 @@ impl Task {
 		self.state = TaskState::load_state(&self.file_state);
 	}
 
-	fn save_state(&self) {
-		self.state.save_state(&self.file_state);
-	}
+	fn save_state(&self) { self.state.save_state(&self.file_state); }
 
 	fn save_output(&self) {
 		let mut f = File::create(&self.file_out).unwrap();
