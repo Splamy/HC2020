@@ -164,16 +164,21 @@ impl TaskState {
 		}
 
 		// Search for the best library
-		let take_vec = self
+		/*let take_vec = self
 			.cur_libraries
 			.iter()
 			.enumerate()
 			.filter_map(|(i, l)| if l { Some(i as u32) } else { None })
-			.collect::<Vec<u32>>();
+			.collect::<Vec<u32>>();*/
 
-		let take = take_vec
+		/*let take = take_vec
 			.par_iter()
 			.map(|lib| self.step_compute_library_score(*lib))
+			.max_by(|t1, t2| t1.1.partial_cmp(&t2.1).unwrap());*/
+
+		let take = (0..self.cur_libraries.len() as u32).into_par_iter()
+			.filter(|i| self.cur_libraries.get(*i as usize).unwrap_or_default())
+			.map(|lib| self.step_compute_library_score(lib))
 			.max_by(|t1, t2| t1.1.partial_cmp(&t2.1).unwrap());
 
 		if let Some((take, _score)) = take {
