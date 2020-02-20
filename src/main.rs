@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use structopt::StructOpt;
 
 use std::default::Default;
-use std::fs::{self, File};
+use std::fs;
 use std::io::{Read, Write};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -70,12 +70,15 @@ fn main() {
 	let file = pick_file(&files[..], &opts.pick);
 	let mut task = open_task(&file, &opts);
 	run(&mut task);
-	gen_out(&mut task.state);
+	task.state.gen_out();
 }
 
+impl TaskState {
+	fn parse_in(&mut self, data: &str) {
+	}
 
-fn parse_in(data: &str, state: &mut TaskState) {
-	// CODE HERE
+	fn gen_out(&self) {
+	}
 }
 
 fn run(task: &mut Task) {
@@ -84,10 +87,6 @@ fn run(task: &mut Task) {
 	while RUNNING.load(Ordering::SeqCst) {
 		thread::sleep(Duration::from_secs(1));
 	}
-}
-
-fn gen_out(state: &mut TaskState) {
-	// CODE HERE
 }
 
 // FRAME ======================================================================
@@ -131,8 +130,8 @@ fn open_task(name: &str, opts: &Opts) -> Task {
 
 	if !state_exists || opts.reparse {
 		// Read from raw file
-		let data = read_as_string(&task.file_in);
-		parse_in(&data, &mut task.state);
+		let data = fs::read_to_string(&task.file_in).unwrap();
+		task.state.parse_in(&data);
 	} else {
 		// Restore state
 		task.load_state();
@@ -143,20 +142,6 @@ fn open_task(name: &str, opts: &Opts) -> Task {
 }
 
 // I/O
-
-fn read_as_string(file: &str) -> String {
-	println!("Reading {}", file);
-	let mut f = File::open(&file).unwrap();
-	let mut buffer = String::new();
-	f.read_to_string(&mut buffer).unwrap();
-	buffer
-}
-
-fn write_from_string(file: &str, data: &str) {
-	println!("Writing {}", file);
-	let mut f = File::create(&file).unwrap();
-	f.write_all(data.as_bytes()).unwrap();
-}
 
 fn combine_name(base: &str, ext: &str) -> String {
 	let mut f = String::new();
@@ -190,12 +175,12 @@ impl Task {
 
 impl TaskState {
 	fn load_state(file: &str) -> TaskState {
-		let data = read_as_string(file);
+		let data = fs::read_to_string(file).unwrap();
 		serde_json::from_str(&data).unwrap()
 	}
 
 	fn save_state(&self, file: &str) {
 		let data = serde_json::to_string(&self).unwrap();
-		write_from_string(file, &data);
+		fs::write(file, data.as_bytes()).unwrap();
 	}
 }
