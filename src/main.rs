@@ -1,14 +1,17 @@
 use bit_vec::BitVec;
+use failure::Error;
 use serde::{Deserialize, Serialize};
 use structopt::StructOpt;
 
 use std::default::Default;
-use std::fs;
+use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::Duration;
+
+type Result<T> = std::result::Result<T, Error>;
 
 #[derive(StructOpt)]
 #[structopt(about, author)]
@@ -68,7 +71,7 @@ fn main() {
 	let file = pick_file(&files[..], &opts.pick);
 	let mut task = open_task(&file, &opts);
 	run(&mut task);
-	task.state.gen_out();
+	task.save_output();
 }
 
 impl TaskState {
@@ -107,7 +110,28 @@ impl TaskState {
 		}
 	}
 
-	fn gen_out(&self) {
+	fn gen_out(&self, w: &mut Write) -> Result<()> {
+		println!("Saving output");
+		writeln!(w, "{}", self.takes.len())?;
+		for t in &self.takes {
+			writeln!(w, "{} {}", t.library, t.books.len())?;
+			for b in &t.books {
+				write!(w, "{}", b)?;
+			}
+			writeln!(w)?;
+		}
+		println!("Score: {}", self.score());
+		Ok(())
+	}
+
+	fn score(&self) -> u32 {
+		let mut score = 0;
+		let mut start = 0;
+		for t in &self.takes {
+			score += t.score(self, start);
+			start += self.libraries[t.library as usize].signup_time;
+		}
+		score
 	}
 }
 
@@ -213,6 +237,11 @@ impl Task {
 
 	fn save_state(&self) {
 		self.state.save_state(&self.file_state);
+	}
+
+	fn save_output(&self) {
+		let mut f = File::create(&self.file_out).unwrap();
+		self.state.gen_out(&mut f).unwrap();
 	}
 }
 
