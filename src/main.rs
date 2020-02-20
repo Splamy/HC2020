@@ -73,6 +73,38 @@ fn main() {
 
 impl TaskState {
 	fn parse_in(&mut self, data: &str) {
+		let mut lines = data.lines();
+		let l = lines.next().unwrap(); // (amount books, amount libs, days scanning)
+		let mut s = l.split(' ').map(|n| n.parse::<u32>().unwrap());
+		let amount_books = s.next().unwrap() as usize;
+		let amount_libs = s.next().unwrap() as usize;
+		self.duration = s.next().unwrap();
+
+		let l = lines.next().unwrap();
+		self.book_scores.extend(l.split(' ').map(|n| n.parse::<u16>().unwrap()));
+		assert_eq!(self.book_scores.len(), amount_books);
+		for i in 0..amount_libs {
+			let l = lines.next().unwrap(); // (amt books, signup time, books/day)
+			let mut s = l.split(' ').map(|n| n.parse::<u32>().unwrap());
+			let amount_books_lib = s.next().unwrap() as usize;
+			let signup_time = s.next().unwrap();
+			let books_per_day = s.next().unwrap();
+
+			let mut lib = Library {
+				signup_time,
+				books_per_day,
+				books: BitVec::from_elem(amount_books, false)
+			};
+
+			// Read books
+			let l = lines.next().unwrap();
+			for b in l.split(' ').map(|n| n.parse::<usize>().unwrap()) {
+				lib.books.set(b, true);
+			}
+			assert_eq!(lib.books.iter().filter(|x| *x).count(), amount_books_lib);
+
+			self.libraries.push(lib);
+		}
 	}
 
 	fn gen_out(&self) {
