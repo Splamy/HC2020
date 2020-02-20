@@ -166,7 +166,6 @@ impl TaskState {
 		// Search for the best library
 		let take_vec = self
 			.cur_libraries
-			// TODO par
 			.iter()
 			.enumerate()
 			.filter_map(|(i, l)| if l { Some(i as u32) } else { None })
@@ -180,7 +179,8 @@ impl TaskState {
 		if let Some((take, _score)) = take {
 			self.cur_libraries.set(take.library as usize, false);
 			if take.books.is_empty() {
-				return false;
+				println!("No more libraries found");
+				return true;
 			}
 
 			self.cur_time += self.libraries[take.library as usize].signup_time;
@@ -203,7 +203,6 @@ impl TaskState {
 		if let Some(left_time) =
 			self.remaining_time().checked_sub(lib.signup_time)
 		{
-			// TODO Mask out already taken books
 			let book_count = left_time * lib.books_per_day;
 
 			let mut books = lib
