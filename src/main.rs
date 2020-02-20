@@ -4,6 +4,10 @@ use structopt::StructOpt;
 use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use std::thread;
+use std::time::Duration;
 
 #[derive(StructOpt)]
 #[structopt(about, author)]
@@ -31,8 +35,14 @@ struct TaskState {
 	// CODE HERE
 }
 
+static running: std::sync::atomic::AtomicBool = AtomicBool::new(true);
+
 fn main() {
 	let opts: Opts = Opts::from_args();
+
+    ctrlc::set_handler(move || {
+        running.store(false, Ordering::SeqCst);
+    }).expect("Error setting Ctrl-C handler");
 
 	let files = find_files();
 	let file = pick_file(&files[..], &opts.pick);
@@ -47,9 +57,11 @@ fn parse_in(data: &str, state: &mut TaskState) {
 }
 
 fn run(task: &mut Task) {
-	task.save_state();
+	//task.save_state();
 	// CODE HERE
-
+	while running.load(Ordering::SeqCst) {
+		thread::sleep(Duration::from_secs(1));
+	}
 }
 
 fn gen_out(state: &mut TaskState) {
