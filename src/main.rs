@@ -113,11 +113,17 @@ impl PartialOrd for BookScore<'_> {
 }
 
 impl TaskState {
-	fn take_rem_time(&self, take: &Take) -> u32 {
-		let lib = self.libraries[take.library as usize];
-		self.remaining_time
+	fn take_free_time(&self, take: &Take) -> u32 {
+		let lib = &self.libraries[take.library as usize];
+		self.remaining_time()
 			.saturating_sub(lib.signup_time)
-			.saturating_sub(take.books.len() / lib.books_per_day)
+	}
+
+	fn take_rem_time(&self, take: &Take) -> u32 {
+		let lib = &self.libraries[take.library as usize];
+		self.remaining_time()
+			.saturating_sub(lib.signup_time)
+			.saturating_sub(take.books.len() as u32 / lib.books_per_day)
 	}
 
 	fn parse_in(&mut self, data: &str) {
@@ -223,11 +229,14 @@ impl TaskState {
 
 			take_l.sort_by(|t1, t2| t1.1.partial_cmp(&t2.1).unwrap());
 			if take_l.len() >= 2 {
-				let t1 = take_l[take_l.len() - 1];
-				let t2 = take_l[take_l.len() - 2];
+				let t1 = &take_l[take_l.len() - 1];
+				let t2 = &take_l[take_l.len() - 2];
 
-				
-
+				if self.take_free_time(&t2.0) < self.take_rem_time(&t1.0) {
+					Some(t2.clone())
+				} else {
+					Some(t1.clone())
+				}
 			} else  {
 				take_l.last().cloned()
 			}
